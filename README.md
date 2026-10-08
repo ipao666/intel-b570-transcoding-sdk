@@ -1,72 +1,78 @@
-# MFX50 B570 Encoder
+# MFX50 · Intel B570 视频转码 SDK
 
-[简体中文](README.zh-CN.md)
+### Intel B570 Video Transcoding SDK
 
-MFX50 B570 Encoder is a C/C++ video transcoding SDK and reference implementation for Intel B570 hardware. It provides a realtime pipeline, adaptive QP and ROI policy components, oneVPL integration, command-line probes, and validation tests.
+**C/C++ multi-stream hardware transcoding and adaptive quality control for Intel B570.**
+面向 Intel B570 的 C/C++ 多路硬件转码与自适应质量策略。
 
-## Features
+[中文完整说明](README.zh-CN.md) · [Design & ownership](docs/PROJECT.md) · [Build & verification](docs/REPRODUCING.md) · [Benchmark evidence](docs/BENCHMARKS.md)
 
-- H.264 input to H.265/HEVC output through oneVPL
-- B570-oriented multi-route realtime transcoding
-- Adaptive QP, MBQP, ROI, scene analysis, and quality-guard policies
-- Public C and C++ APIs for integration
-- JSON configuration, CLI examples, packaging scripts, and tests
+[![Build and tests](https://github.com/ipao666/mfx50-b570-encoder/actions/workflows/ci.yml/badge.svg)](https://github.com/ipao666/mfx50-b570-encoder/actions/workflows/ci.yml)
 
-## Requirements
+An independent personal project by **[ipao666](https://github.com/ipao666)**. My work covers SDK interfaces, oneVPL integration, asynchronous scheduling, quality policies, diagnostics and tests. The underlying codecs are implemented by Intel hardware and its runtime; this project builds the integration and control layer.
 
-- Linux x86_64
-- Intel B570 GPU and a usable DRM render node
-- oneVPL runtime/development library (`vpl` or `mfx-gen`)
-- libva and libva-drm development libraries
-- CMake 3.16 or newer and a C++17 compiler
+## Problem and architecture
 
-Optional RTSP/UDP demos require FFmpeg development libraries.
+Multi-stream transcoding requires more than aggregate throughput: surfaces must remain valid across asynchronous operations, buffered frames must drain correctly, and bitrate reductions must be weighed against visual quality.
 
-## Build
+```text
+Encoded input → per-stream scheduling → oneVPL decode → surface lifecycle
+→ scene / QP / ROI policy → HEVC encode → output queue → caller muxing or streaming
+```
+
+- C API with C++17 implementation, versioned structures and configuration.
+- Asynchronous decode/encode, ordered completion and flush/drain handling.
+- Scene-aware QP decisions, quality guards, ROI/MBQP adapters and static-reuse gating.
+- Capability probing, fallback explanations and decision traces.
+- CPU-only policy demo and tests, plus Linux SDK compilation in CI.
+
+ROI/MBQP availability depends on runtime and hardware. Check effective configuration and actual encode-control traces; a requested option is not proof that it was attached.
+
+## Try it without a GPU
+
+CMake 3.16+, a C/C++17 compiler, and Linux or macOS. No oneVPL or libva installation is needed for this profile.
+
+```bash
+git clone https://github.com/ipao666/mfx50-b570-encoder.git
+cd mfx50-b570-encoder
+cmake -S . -B build-cpu -DMFX50RT_BUILD_HARDWARE=OFF -DCMAKE_BUILD_TYPE=Release
+cmake --build build-cpu --parallel
+ctest --test-dir build-cpu --output-on-failure
+./build-cpu/policy_decision_demo
+```
+
+The demo produces policy decisions from input features/metadata; it does not transcode video. CPU tests cover the policy API, QP maps, MBQP data adaptation, ROI analysis, quality guards, static reuse, preprocessing and output queue retry semantics. Assertions stay enabled in Release tests.
+
+## Hardware build
+
+The full path requires Linux x86_64, Intel B570, a usable DRM render node, oneVPL and libva development libraries.
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
-ctest --test-dir build --output-on-failure
 ```
 
-If the target host exposes the B570 through a different render node, set `DEVICE` before running the examples:
+See the [build guide](docs/REPRODUCING.md) for the hardware boundary and runtime examples.
 
-```bash
-export DEVICE=/dev/dri/renderD129
-```
+## Recorded performance, with limitations
 
-## Quick Start
+Historical author report: **45 streams × 1000 frames**, QPI/QPP/QPB = 41/43/51.
 
-The repository includes a basic transcode example and B570-oriented scripts under `examples/b570_fastpath/`.
+| Metric | Recorded value |
+|---|---:|
+| Minimum per-stream throughput | 32.410 FPS |
+| Average compression reduction, report definition | 86.122% |
+| Mean all-channel SSIM | 0.895916 |
+| Minimum Y-channel SSIM | 0.699790 |
 
-```bash
-export LD_LIBRARY_PATH="$PWD/build:$LD_LIBRARY_PATH"
-./build/bench_real_45_files \
-  video_list_1.txt 0 65536 1 onevpl /tmp/mfx50_out_ \
-  none target_90_ssim_guard 60 120 0 "" \
-  "width=1280,height=720,fps_num=25,fps_den=1"
-```
+Throughput passed the reported target; compression and quality goals were not met simultaneously. A quality-first daytime profile reduced compression to 60.913%. Raw per-stream CSVs, the full input set and complete environment metadata are not included, so these are not independently reproduced benchmarks. CI does not execute B570 workloads. [Evidence and measurement protocol](docs/BENCHMARKS.md)
 
-See [docs/B570_VIDEO_COMPRESSION_FLOW.md](docs/B570_VIDEO_COMPRESSION_FLOW.md), [docs/B570_CURRENT_LIMITS.md](docs/B570_CURRENT_LIMITS.md), and [docs/BACKEND_GUIDE.md](docs/BACKEND_GUIDE.md) for architecture, validated constraints, and backend behavior.
+## Code tour
 
-## Repository Layout
+- [Realtime core](mfx50_realtime.cpp): asynchronous states, surfaces, submission, synchronization and drain.
+- [Public API](include/mfx50rt.h) and [backend guide](docs/BACKEND_GUIDE.md): configuration, capabilities and fallback.
+- [Quality policy](src/algo/hybridtsrq/): temporal/spatial QP and quality guard.
+- [Output queue](src/core/mfx50_output_queue.cpp): ownership and retry behavior.
+- [Design / personal contribution](docs/PROJECT.md): engineering choices and interview discussion points.
 
-```text
-include/       Public headers
-src/           Runtime, policy, algorithm, and backend implementation
-examples/      Integration examples and B570 run scripts
-tools/         Diagnostic and transcoding command-line tools
-tests/         C and C++ test programs
-configs/       Runtime configuration examples
-docs/          API, algorithm, and operational documentation
-packaging/     SDK packaging helpers
-```
-
-## Notes
-
-This repository contains source code only. It does not include video samples, generated media, prebuilt binaries, or vendor runtime libraries. Hardware capability and quality results depend on the installed driver, oneVPL implementation, input material, and runtime configuration.
-
-## License
-
-Released under the [MIT License](LICENSE).
+[MIT License](LICENSE); third-party runtimes and drivers retain their own licenses.

@@ -1,76 +1,85 @@
-# MFX50 B570 Encoder
+# MFX50 · Intel B570 视频转码 SDK
 
-[English](README.md)
+### Intel B570 Video Transcoding SDK
 
-MFX50 B570 Encoder 是面向 Intel B570 硬件的 C/C++ 视频转码 SDK 与参考实现。项目提供实时处理流水线、自适应 QP 与 ROI 策略模块、oneVPL 集成、命令行诊断工具和验证测试。
+**面向 Intel B570 的 C/C++ 多路硬件转码与自适应质量策略。**
+C/C++ multi-stream hardware transcoding and adaptive quality control for Intel B570.
 
-## 特性
+[English](README.md) · [设计与个人贡献](docs/PROJECT.md) · [构建与验证](docs/REPRODUCING.md) · [性能证据](docs/BENCHMARKS.md) · [历史限制记录](docs/B570_CURRENT_LIMITS.md)
 
-- 通过 oneVPL 将 H.264 输入转码为 H.265/HEVC
-- 面向 B570 的多路实时转码能力
-- 自适应 QP、MBQP、ROI、场景分析和质量保护策略
-- 供集成使用的 C/C++ 公开 API
-- JSON 配置、命令行示例、打包脚本和测试
+[![Build and tests](https://github.com/ipao666/mfx50-b570-encoder/actions/workflows/ci.yml/badge.svg)](https://github.com/ipao666/mfx50-b570-encoder/actions/workflows/ci.yml)
 
-## 运行环境
+独立个人项目，作者 **[ipao666](https://github.com/ipao666)**。我负责 SDK 接口、oneVPL 集成、异步流水线、质量策略、诊断与测试。视频编解码底层由 Intel oneVPL / VAAPI 和硬件实现，本项目贡献在集成、调度、策略与工程验证。
 
-- Linux x86_64
-- Intel B570 GPU，以及可用的 DRM render node
-- oneVPL 运行时与开发库（`vpl` 或 `mfx-gen`）
-- libva 和 libva-drm 开发库
-- CMake 3.16 或更高版本，以及支持 C++17 的编译器
+## 解决的问题
 
-可选的 RTSP/UDP 示例还需要 FFmpeg 开发库。
+多路监控转码不仅需要足够的吞吐，还需要控制拷贝、排空尾帧、保留关键区域，并在压缩率与画质之间做可解释的选择。本项目提供可集成的 C 接口、C++ 实现和诊断工具，探索这些约束在 B570 上的实际边界。
 
-## 构建
+```mermaid
+flowchart LR
+    A[编码输入与解封装] --> B[多路任务调度]
+    B --> C[oneVPL 硬件解码]
+    C --> D[Surface 与异步状态管理]
+    D --> E[低频场景分析与 QP/ROI 决策]
+    E --> F[HEVC 硬件编码]
+    F --> G[输出队列与 Poll/回调]
+    G --> H[调用方封装或推流]
+```
+
+能力探测与回退决定实际使用的编码控制。ROI/MBQP 支持与驱动、格式及运行路径有关，需检查有效配置和运行 trace；配置字段本身不证明控制已生效。
+
+## 具体工程内容
+
+| 模块 | 内容 | 入口 |
+|---|---|---|
+| 异步流水线 | 解码/编码提交、同步、顺序与 surface 生命周期 | [mfx50_realtime.cpp](mfx50_realtime.cpp) |
+| 尾帧与错误处理 | MORE_DATA / DEVICE_BUSY、flush/drain 与输出排空 | [历史 flush 修复](docs/MFX50_REALTIME_FLUSH_FIX_20260609.md) |
+| 质量策略 | 场景分析、时空 QP、质量保护、ROI 与静态复用门控 | [hybridtsrq](src/algo/hybridtsrq/) |
+| 接口与诊断 | C API、能力查询、有效策略、决策 trace、JSON 配置 | [公开头文件](include/mfx50rt.h)、[后端说明](docs/BACKEND_GUIDE.md) |
+| 可移植验证 | 无 GPU 策略演示、算法/队列单元测试、Release 断言保护 | [测试目录](tests/) |
+
+## 无 GPU 快速体验
+
+需要 CMake 3.16+ 和 C/C++17 编译器，Linux 或 macOS；无需 oneVPL、libva 或 B570。
+
+```bash
+git clone https://github.com/ipao666/mfx50-b570-encoder.git
+cd mfx50-b570-encoder
+cmake -S . -B build-cpu -DMFX50RT_BUILD_HARDWARE=OFF -DCMAKE_BUILD_TYPE=Release
+cmake --build build-cpu --parallel
+ctest --test-dir build-cpu --output-on-failure
+./build-cpu/policy_decision_demo
+```
+
+该演示把输入特征和 ROI 元数据转换成编码策略，不输出压缩视频。CPU 测试覆盖策略 API、QP 图、MBQP 数据适配、ROI 分析、质量保护、静态复用、预处理及输出队列。Release 测试显式保留断言，防止 API 调用被编译器删除。
+
+## B570 硬件路径
+
+需要 Linux x86_64、B570、可访问的 DRM render node、oneVPL 和 libva 开发库。完整命令、设备选择和验证边界见[构建指南](docs/REPRODUCING.md)。
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
-ctest --test-dir build --output-on-failure
 ```
 
-如果目标机器上的 B570 使用不同的 render node，请在运行示例前设置 `DEVICE`：
+## 已记录的性能与限制
 
-```bash
-export DEVICE=/dev/dri/renderD129
-```
+以下为作者历史 **45 路 × 1000 帧**验证摘要，不是 CI 复跑结果。原始逐路 CSV、完整输入集及完整环境信息未随源码归档。
 
-## 快速开始
+| 配置/指标 | 记录值 |
+|---|---:|
+| QPI/QPP/QPB | 41 / 43 / 51 |
+| 最低路吞吐 | 32.410 FPS |
+| 平均压缩率（历史报告口径） | 86.122% |
+| 平均整体 SSIM | 0.895916 |
+| 最低 Y 通道 SSIM | 0.699790 |
 
-仓库提供基础转码示例，以及位于 `examples/b570_fastpath/` 的 B570 运行脚本。
+该配置达到记录中的吞吐目标，但没有同时达到约 90% 压缩和全部画质门槛。质量优先的白天配置记录了更好的最低 Y-SSIM，但平均压缩率降至 60.913%。这说明需要明确应用的质量与存储约束，不能承诺所有指标同时达标。[完整证据范围](docs/BENCHMARKS.md)
 
-```bash
-export LD_LIBRARY_PATH="$PWD/build:$LD_LIBRARY_PATH"
-./build/bench_real_45_files \
-  video_list_1.txt 0 65536 1 onevpl /tmp/mfx50_out_ \
-  none target_90_ssim_guard 60 120 0 "" \
-  "width=1280,height=720,fps_num=25,fps_den=1"
-```
+## 阅读顺序
 
-更多信息请参阅：
+- [设计与个人贡献](docs/PROJECT.md)：线程/状态、缓冲与策略回退的代码入口。
+- [构建与验证](docs/REPRODUCING.md)：CPU 单测、Linux 编译与真实硬件验收的区别。
+- [性能证据](docs/BENCHMARKS.md)：已知结果、缺失原始材料及重新测量协议。
 
-- [视频压缩流程](docs/B570_VIDEO_COMPRESSION_FLOW.md)
-- [当前限制与验证结果](docs/B570_CURRENT_LIMITS.md)
-- [后端说明](docs/BACKEND_GUIDE.md)
-
-## 目录结构
-
-```text
-include/       公开头文件
-src/           运行时、策略、算法和后端实现
-examples/      集成示例与 B570 运行脚本
-tools/         诊断与转码命令行工具
-tests/         C/C++ 测试程序
-configs/       运行配置示例
-docs/          API、算法与运行文档
-packaging/     SDK 打包辅助脚本
-```
-
-## 说明
-
-本仓库仅包含源码，不含测试视频、生成媒体、预编译二进制或厂商运行时库。硬件能力和画质结果取决于驱动、oneVPL 实现、输入视频以及运行配置。
-
-## 许可证
-
-本项目采用 [MIT License](LICENSE)。
+使用 [MIT License](LICENSE)。厂商运行时、驱动与外部库遵循各自许可证。

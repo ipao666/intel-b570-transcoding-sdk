@@ -2,12 +2,30 @@ cmake_minimum_required(VERSION 3.16)
 project(mfx50_encoder LANGUAGES C CXX)
 
 include(GNUInstallDirs)
+include(CTest)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2 -Wall -Wextra")
 set(MFX50RT_PACKAGE_VERSION 0.5.0)
 option(MFX50RT_BUILD_FFMPEG_DEMOS "Build RTSP/UDP demos with FFmpeg" OFF)
+option(MFX50RT_BUILD_HARDWARE "Build Linux oneVPL/VAAPI runtime and demos" ON)
+
+# The tests call APIs inside assert(). Release builds must execute those calls.
+function(mfx50_enable_test_assertions)
+    get_property(build_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+    foreach(test_target IN LISTS build_targets)
+        if(test_target MATCHES "^test_")
+            if(MSVC)
+                target_compile_options(${test_target} PRIVATE /UNDEBUG
+                    /FI${CMAKE_CURRENT_SOURCE_DIR}/tests/require_assertions.h)
+            else()
+                target_compile_options(${test_target} PRIVATE -UNDEBUG
+                    -include ${CMAKE_CURRENT_SOURCE_DIR}/tests/require_assertions.h)
+            endif()
+        endif()
+    endforeach()
+endfunction()
 
 add_library(mfx50_policy SHARED
     src/policy/mfx50_policy.cpp
@@ -25,6 +43,40 @@ set_target_properties(mfx50_policy PROPERTIES
 add_executable(policy_decision_demo examples/policy_decision_demo.c)
 target_link_libraries(policy_decision_demo PRIVATE mfx50_policy)
 target_include_directories(policy_decision_demo PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+# A real CPU-only build of policy/algorithm code; no simulated encoder backend.
+if(NOT MFX50RT_BUILD_HARDWARE)
+    if(MFX50RT_BUILD_FFMPEG_DEMOS)
+        message(FATAL_ERROR "FFmpeg demos require MFX50RT_BUILD_HARDWARE=ON")
+    endif()
+    if(BUILD_TESTING)
+        find_package(Threads REQUIRED)
+        function(mfx50_cpu_test name)
+            add_executable(test_${name} tests/test_${name}.cpp ${ARGN})
+            target_include_directories(test_${name} PRIVATE
+                ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/include)
+            target_link_libraries(test_${name} PRIVATE Threads::Threads)
+            add_test(NAME ${name} COMMAND test_${name})
+        endfunction()
+        add_executable(test_policy_api tests/test_policy_api.c)
+        target_link_libraries(test_policy_api PRIVATE mfx50_policy)
+        add_test(NAME policy_api COMMAND test_policy_api)
+        mfx50_cpu_test(qp_map src/algo/hybridtsrq/qp_map.cpp)
+        mfx50_cpu_test(onevpl_mbqp_adapter src/backend/onevpl/onevpl_mbqp_adapter.cpp)
+        mfx50_cpu_test(heavy_roi_analyzer src/algo/hybridtsrq/heavy_roi_analyzer.cpp)
+        mfx50_cpu_test(quality_guard src/algo/hybridtsrq/quality_guard.cpp)
+        mfx50_cpu_test(static_reuse_gate src/algo/hybridtsrq/static_reuse_gate.cpp)
+        mfx50_cpu_test(mfx50_preprocess src/algo/mfx50_preprocess.cpp)
+        mfx50_cpu_test(output_queue src/core/mfx50_output_queue.cpp)
+        mfx50_enable_test_assertions()
+    endif()
+    install(TARGETS mfx50_policy policy_decision_demo
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+    install(FILES include/mfx50_policy.h include/mfx50_types.h
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+    return()
+endif()
 
 set(MFX50RT_HYBRIDTSRQ_SOURCES
     src/api/mfx50rt_api.cpp
@@ -245,7 +297,7 @@ if(TARGET demo_mfx50_realtime_rtsp)
     )
 endif()
 
-enable_testing()
+if(BUILD_TESTING)
 
 add_executable(test_policy_api tests/test_policy_api.c)
 target_link_libraries(test_policy_api PRIVATE mfx50_policy)
@@ -350,3 +402,11 @@ target_include_directories(test_mfx50_preprocess PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 add_test(NAME mfx50_preprocess COMMAND test_mfx50_preprocess)
+
+add_executable(test_output_queue tests/test_output_queue.cpp src/core/mfx50_output_queue.cpp)
+target_include_directories(test_output_queue PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(test_output_queue PRIVATE pthread)
+add_test(NAME output_queue COMMAND test_output_queue)
+mfx50_enable_test_assertions()
+endif()
