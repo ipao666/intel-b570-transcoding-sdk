@@ -1,15 +1,17 @@
-# MFX50 · Intel B570 视频转码 SDK
+# Intel B570 多路硬件视频转码 SDK
 
-### Intel B570 Video Transcoding SDK
+### Intel B570 Multi-Stream Hardware Transcoding SDK
 
 **面向 Intel B570 的 C/C++ 多路硬件转码与自适应质量策略。**
 C/C++ multi-stream hardware transcoding and adaptive quality control for Intel B570.
 
 [English](README.md) · [设计与个人贡献](docs/PROJECT.md) · [构建与验证](docs/REPRODUCING.md) · [性能证据](docs/BENCHMARKS.md) · [历史限制记录](docs/B570_CURRENT_LIMITS.md)
 
-[![Build and tests](https://github.com/ipao666/mfx50-b570-encoder/actions/workflows/ci.yml/badge.svg)](https://github.com/ipao666/mfx50-b570-encoder/actions/workflows/ci.yml)
+[![Build and tests](https://github.com/ipao666/intel-b570-transcoding-sdk/actions/workflows/ci.yml/badge.svg)](https://github.com/ipao666/intel-b570-transcoding-sdk/actions/workflows/ci.yml)
 
 独立个人项目，作者 **[ipao666](https://github.com/ipao666)**。我负责 SDK 接口、oneVPL 集成、异步流水线、质量策略、诊断与测试。视频编解码底层由 Intel oneVPL / VAAPI 和硬件实现，本项目贡献在集成、调度、策略与工程验证。
+
+代码中的 `MFX50` / `MFX50RT` 为既有 API 前缀，保留以兼容现有调用。
 
 ## 解决的问题
 
@@ -43,8 +45,8 @@ flowchart LR
 需要 CMake 3.16+ 和 C/C++17 编译器，Linux 或 macOS；无需 oneVPL、libva 或 B570。
 
 ```bash
-git clone https://github.com/ipao666/mfx50-b570-encoder.git
-cd mfx50-b570-encoder
+git clone https://github.com/ipao666/intel-b570-transcoding-sdk.git
+cd intel-b570-transcoding-sdk
 cmake -S . -B build-cpu -DMFX50RT_BUILD_HARDWARE=OFF -DCMAKE_BUILD_TYPE=Release
 cmake --build build-cpu --parallel
 ctest --test-dir build-cpu --output-on-failure
