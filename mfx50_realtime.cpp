@@ -5,6 +5,7 @@
 #include "mfx50_preprocess.h"
 #include "mfx50_scene_analyzer.h"
 #include "src/backend/onevpl/onevpl_realtime_internal.h"
+#include "src/backend/onevpl/onevpl_header_compat.h"
 
 #include <vpl/mfxdispatcher.h>
 #include <vpl/mfxvideo.h>
@@ -85,7 +86,9 @@ std::string mfxStatusName(mfxStatus st) {
     case MFX_ERR_REALLOC_SURFACE: return "MFX_ERR_REALLOC_SURFACE";
     case MFX_ERR_RESOURCE_MAPPED: return "MFX_ERR_RESOURCE_MAPPED";
     case MFX_ERR_NOT_IMPLEMENTED: return "MFX_ERR_NOT_IMPLEMENTED";
+#ifdef MFX50_HAVE_MORE_EXTBUFFER
     case MFX_ERR_MORE_EXTBUFFER: return "MFX_ERR_MORE_EXTBUFFER";
+#endif
     case MFX_WRN_IN_EXECUTION: return "MFX_WRN_IN_EXECUTION";
     case MFX_WRN_DEVICE_BUSY: return "MFX_WRN_DEVICE_BUSY";
     case MFX_WRN_VIDEO_PARAM_CHANGED: return "MFX_WRN_VIDEO_PARAM_CHANGED";
@@ -1194,7 +1197,12 @@ bool buildMbqpControlFromDecision(const MFX50RT_InternalEncodeDecision& decision
     slot->mbqp = {};
     slot->mbqp.Header.BufferId = MFX_EXTBUFF_MBQP;
     slot->mbqp.Header.BufferSz = sizeof(slot->mbqp);
-    slot->mbqp.Pitch = static_cast<mfxU32>(decision.mbqp_pitch);
+    if (!mfx50rt::onevpl::setMbqpPitch(slot->mbqp,
+            static_cast<uint32_t>(decision.mbqp_pitch),
+            static_cast<uint32_t>(decision.mbqp_block_cols))) {
+        if (reason) *reason = "installed oneVPL headers require a packed MBQP map";
+        return false;
+    }
     slot->mbqp.Mode = MFX_MBQP_MODE_QP_VALUE;
     slot->mbqp.BlockSize = static_cast<mfxU16>(decision.mbqp_block_size);
     slot->mbqp.NumQPAlloc = static_cast<mfxU32>(slot->qpBuffer.size());

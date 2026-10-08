@@ -1,4 +1,5 @@
 #include <vpl/mfxdispatcher.h>
+#include "src/backend/onevpl/onevpl_header_compat.h"
 #include <vpl/mfxvideo.h>
 #include <va/va.h>
 #include <va/va_drm.h>
@@ -468,7 +469,10 @@ EncodeResult encodeProbe(const Options& opt, bool enableMbqp, const std::string&
             if (enableMbqp) {
                 mbqp.Header.BufferId = MFX_EXTBUFF_MBQP;
                 mbqp.Header.BufferSz = sizeof(mbqp);
-                mbqp.Pitch = static_cast<mfxU32>(blocksW);
+                if (!mfx50rt::onevpl::setMbqpPitch(mbqp,
+                        static_cast<uint32_t>(blocksW), static_cast<uint32_t>(blocksW))) {
+                    throw std::runtime_error("unsupported MBQP map pitch");
+                }
                 mbqp.Mode = MFX_MBQP_MODE_QP_VALUE;
                 mbqp.BlockSize = 16;
                 mbqp.NumQPAlloc = static_cast<mfxU32>(qpMap.size());

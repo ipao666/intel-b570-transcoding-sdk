@@ -63,6 +63,7 @@ if(NOT MFX50RT_BUILD_HARDWARE)
         add_test(NAME policy_api COMMAND test_policy_api)
         mfx50_cpu_test(qp_map src/algo/hybridtsrq/qp_map.cpp)
         mfx50_cpu_test(onevpl_mbqp_adapter src/backend/onevpl/onevpl_mbqp_adapter.cpp)
+        mfx50_cpu_test(onevpl_header_compat)
         mfx50_cpu_test(heavy_roi_analyzer src/algo/hybridtsrq/heavy_roi_analyzer.cpp)
         mfx50_cpu_test(quality_guard src/algo/hybridtsrq/quality_guard.cpp)
         mfx50_cpu_test(static_reuse_gate src/algo/hybridtsrq/static_reuse_gate.cpp)
@@ -190,6 +191,13 @@ target_include_directories(mfx50_realtime PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src/core
 )
 target_link_libraries(mfx50_realtime PRIVATE ${VPL_LIBRARY} ${VA_LIBRARY} ${VA_DRM_LIBRARY} pthread dl)
+include(CheckCXXSourceCompiles)
+check_cxx_source_compiles("#include <vpl/mfxdefs.h>
+int main() { return static_cast<int>(MFX_ERR_MORE_EXTBUFFER); }"
+    MFX50_HAVE_MORE_EXTBUFFER)
+if(MFX50_HAVE_MORE_EXTBUFFER)
+    target_compile_definitions(mfx50_realtime PRIVATE MFX50_HAVE_MORE_EXTBUFFER=1)
+endif()
 set_target_properties(mfx50_realtime PROPERTIES
     OUTPUT_NAME "mfx50_realtime"
     VERSION ${MFX50RT_PACKAGE_VERSION}
@@ -408,5 +416,8 @@ target_include_directories(test_output_queue PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(test_output_queue PRIVATE pthread)
 add_test(NAME output_queue COMMAND test_output_queue)
+add_executable(test_onevpl_header_compat tests/test_onevpl_header_compat.cpp)
+target_include_directories(test_onevpl_header_compat PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+add_test(NAME onevpl_header_compat COMMAND test_onevpl_header_compat)
 mfx50_enable_test_assertions()
 endif()

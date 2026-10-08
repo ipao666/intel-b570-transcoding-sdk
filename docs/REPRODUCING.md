@@ -47,3 +47,9 @@ MP4 解封装/封装脚本还需要 FFmpeg 命令。RTSP/UDP C++ 示例默认关
 | 多路与质量评测 | 固定分辨率/帧率/配置下的吞吐和质量 | 任意码流上均满足目标 |
 
 性能复测应按 [测量协议](BENCHMARKS.md) 记录条件；CPU CI 与无 GPU 编译不会覆盖这些结论。
+
+## oneVPL 头文件兼容
+
+Ubuntu 的稳定 oneVPL 头文件与较新 API 不完全一致。运行时和探针通过字段检测设置 `mfxExtMBQP::Pitch`：旧头文件仅接受连续排列的 QP 图，不能表达的非连续 stride 会明确拒绝，不会静默丢弃。可选错误枚举通过 CMake 编译探测决定是否加入诊断。此兼容处理不等于旧驱动支持新硬件功能。
+
+设计依据：[Intel MBQP 数据结构](https://intel.github.io/libvpl/latest/API_ref/VPL_structs_encode.html) 与 [API 字段演进记录](https://intel.github.io/libvpl/latest/Experimental.html)。实际是否支持 MBQP 仍由运行探测确认。
